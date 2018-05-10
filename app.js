@@ -20,9 +20,17 @@ const routeFilterList={
   '/uploads':true,
 }
 
+//设置跨域
+const corsHeader={
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods':'GET,PUT,POST,DELETE',
+  'Access-Control-Allow-Headers': 'Content-Type,token',
+  'Access-Control-Allow-Credentials':'true',
+}
+
 // view engine setup
-// app.set('views', path.join(__dirname, 'views'));
-// app.set('view engine', 'jade');
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'jade');
 
 // uncomment after placing your favicon in /public
 //app.use(favicon(path.join(__dirname, 'public', 'favicon.ico')));
@@ -31,50 +39,51 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 // app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads',express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads',express.static(path.join(__dirname, 'uploads'),{
+  maxAge:30*60,
+}));
 
 
 app.use(function(req,res,next){
   let token=req.get("token");
 
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    res.header('Access-Control-Allow-Credentials','true');
+    res.set({
+      ...corsHeader,
+      "Cache-Control":"no-store"
+    })
+  if(routeFilterList[req.path]||req.path.indexOf("uploads")>=0) {
     next()
-  // if(routeFilterList[req.path]||req.path.indexOf("uploads")>=0) {
-  //   next()
-  //   return;
-  // }
+    return;
+  }
 
-  // if(!token){
-  //   res.json({
-  //     code:-1,
-  //     msg:'用户未登录'
-  //   })
-  // }else{
-  //   var verify;
-  //   try{
-  //     verify=jwt.verify(token,'account');
-  //   }catch(err){
-  //     res.json({
-  //       code:-1,
-  //       msg:"用户未登录或登录已过期"
-  //     })
-  //     return;
-  //   }
-  //   if(verify&&verify.data){
-  //     res.locals.user=verify.data;
-  //     next();
-  //     return;
-  //   }else{
-  //     res.json({
-  //       code:-1,
-  //       msg:"用户未登录或登录已过期"
-  //     })
-  //     return;
-  //   }
-  // }
+  if(!token){
+    res.status(203).json({
+      code:-1,
+      msg:'用户未登录'
+    })
+  }else{
+    var verify;
+    try{
+      verify=jwt.verify(token,'account');
+    }catch(err){
+      res.status(203).json({
+        code:-1,
+        msg:"用户未登录或登录已过期"
+      })
+      return;
+    }
+    if(verify&&verify.data){
+      res.locals.user=verify.data;
+      next();
+      return;
+    }else{
+      res.status(203).json({
+        code:-1,
+        msg:"用户未登录或登录已过期"
+      })
+      return;
+    }
+  }
 })
 
 

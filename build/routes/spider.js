@@ -42,7 +42,7 @@ router.get('/taskList', function (req, res, next) {
         }
         for (let i = 0; i < list.length; i++) {
             if (runningHash[list[i].id] !== undefined) {
-                let { pause, stoping, taskQueLength, excutedTaskLength } = runningList[runningHash[list[i].id]].status;
+                let { pause, stoping, taskQueLength, excutedTaskLength, failedUrl } = runningList[runningHash[list[i].id]].status;
                 if (pause) {
                     list[i].status = 2; //pause
                 }
@@ -54,6 +54,7 @@ router.get('/taskList', function (req, res, next) {
                 }
                 list[i].taskQueLength = taskQueLength;
                 list[i].excutedTaskLength = excutedTaskLength;
+                list[i].failedUrl = failedUrl;
             }
             else {
                 list[i].status = 0; //stoped
@@ -64,6 +65,26 @@ router.get('/taskList', function (req, res, next) {
             msg: "成功",
             data: list
         });
+    });
+});
+router.get("/getTaskById", function (req, res, next) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let { id } = req.query;
+        if (!id) {
+            res.json({
+                code: 1,
+                msg: "参数错误"
+            });
+        }
+        else {
+            let task = yield db.getTaskById(id);
+            task = task.rows[0];
+            res.json({
+                code: 0,
+                msg: "成功",
+                data: task
+            });
+        }
     });
 });
 router.get("/result", function (req, res, next) {

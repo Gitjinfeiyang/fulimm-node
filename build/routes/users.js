@@ -7,7 +7,7 @@ var multer = require('multer');
 var path = require('path');
 var storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, path.resolve(__dirname, '../uploads'));
+        cb(null, path.resolve(__dirname, '../../uploads'));
     },
     filename: function (req, file, cb) {
         cb(null, Date.now() + '-' + file.originalname);
@@ -53,7 +53,16 @@ router.post('/signup', function (req, res, next) {
     sex = parseInt(sex);
     db.signUp({ username, account, password, phone, email, sex, avatar })
         .then((data) => {
-        res.json(data.rows);
+        res.json({
+            code: 0,
+            msg: "成功"
+        });
+    })
+        .catch((err) => {
+        res.json({
+            code: 1,
+            msg: err.message
+        });
     });
 });
 router.get('/userinfo', function (req, res, next) {

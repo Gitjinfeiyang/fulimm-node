@@ -65,7 +65,7 @@ function stopTask(id:number){
     }
 }
 
-function getTaskList(){
+function getTaskList():Array<any>{
     let arr:any=[];
     for(let i=0; i<taskArr.length; i++){
         arr.push({
@@ -75,6 +75,14 @@ function getTaskList(){
         })
     }
     return arr;
+}
+
+function getURL(a:string,b:string):string{
+    // if(b.indexOf("//")>=0){
+        return b;
+    // }else{
+        // return new url.URL(a,b+"").href;
+    // }
 }
 
 
@@ -125,12 +133,12 @@ class TaskLimiter{
         if(this.currentRuningCount<this.limit){
             if(this.stop) return;
             for(let i=this.currentRuningIndex; i<this.taskQue.length; i++){
-                this.taskQue[i]();
+                this.taskQue[i]&&this.taskQue[i]();
                 this.currentRuningCount++;
                 this.currentRuningIndex++;
-                console.log(this.currentRuningIndex++,"/",this.taskQue.length)
-                if(i === this.taskQue.length-1){
+                if(i >= this.taskQue.length-1){
                     try{
+                        //todo 没有等最后一个任务的结果返回就关闭了任务
                         this.onLast&&this.onLast()
                     }catch(err){
 
@@ -148,14 +156,23 @@ class TaskLimiter{
     //添加的task必须是异步任务
     //任务完成需调用done，否则将一直占用名额
     //retry必须加条件控制，否则可能死循环
-    add(task:Function){
+    add(task:Function,maxRetryTimes=3){
+        let tryTimes=0;
         let taskFn:any=() => {
+            tryTimes++;
             task(() => {
                 this.currentRuningCount--;
                 taskFn=null;
                 this.run();
             },() => {
-                taskFn();
+                //将任务加入队尾，执行下个任务，如果次数超出，执行下次任务，该任务不再执行
+                if(tryTimes<3){
+                    this.taskQue.push(taskFn);
+                }else{
+                    taskFn=null;
+                }
+                this.currentRuningCount--;                
+                this.run();                                    
             })
         }
         this.taskQue.push(taskFn)
@@ -170,9 +187,16 @@ class TaskLimiter{
         this.stop=false;
         this.run()
     }
+
+    isEmpty():boolean{
+        return this.currentRuningIndex>=this.taskQue.length;
+    }
     
 }
 
+
+const taskLimitCount=1;
+const taskLimitSectionCount=100; // 一次生成100个任务,防止曝内存
 class Task{
     id:number;
     name:string;
@@ -184,6 +208,9 @@ class Task{
     stop:boolean;
     endCallback:Function;
     interval:any;
+    startTime:Date;
+    failedUrl:any;
+
 
     constructor(id:number,name:string,taskArr:any){
         this.id=id;
@@ -191,10 +218,12 @@ class Task{
         this.taskArrJSON=taskArr;
         this.taskQue=[];
         this.currentTaskIndex=0;
-        this.taskLimiter=new TaskLimiter(1);
+        this.taskLimiter=new TaskLimiter(taskLimitCount);
         this.result=[];
         this.stop=false;
         this.endCallback=this.saveDb||function(){};
+        this.startTime=new Date();
+        this.failedUrl={};
         // this.interval=setInterval(() => {//每10分钟入库
         //     if(this.result.length<=0) {
         //         clearInterval(this.interval);
@@ -209,7 +238,6 @@ class Task{
         this.taskQue.length=this.taskArrJSON.length; 
         for(let i=0; i<this.taskArrJSON.length; i++){
             this.taskQue[i]=((data={}) => {
-                if(this.stop) return;
                 this.currentTaskIndex=i;
                 this.excuteTask(this.taskArrJSON[i],data,(i == this.taskArrJSON.length-1) ? () => {
                     this.endCallback(this.result);
@@ -235,8 +263,15 @@ class Task{
 
     stopRun(callback:Function){
         this.stop=true;
-        this.taskLimiter.onLast=callback;
+        this.taskLimiter.onLast=() => {
+            this.saveDb()
+            callback()
+        }
         this.taskLimiter.reRun();
+        if(this.taskLimiter.isEmpty()){
+            this.saveDb()            
+            callback()
+        }
     }
 
     reRun(){
@@ -266,18 +301,50 @@ class Task{
             stoping:this.stop&&!this.taskLimiter.stop,
             currentRuningCount:this.taskLimiter.currentRuningCount,
             taskQueLength:this.taskLimiter.taskQue.length,
-            excutedTaskLength:this.taskLimiter.currentRuningIndex
+            excutedTaskLength:this.taskLimiter.currentRuningIndex,
+            failedUrl:this.failedUrl
         }
+    }
+
+
+    request(url:string,callback:Function){
+        if(this.stop) return;
+        let tryTimes=1;
+        this.taskLimiter.add((done:Function,retry:Function) => {
+            tryTimes++;
+            superagent.get(url).set(header(this.taskArrJSON[0].entry))
+            .then((res:any) => {
+                console.log("success: "+url)
+                done();
+                //如果失败过
+                try{
+                    if(this.failedUrl[url]){
+                        this.failedUrl[url]={tryTimes,success:true};
+                    }
+                    callback({text:res.text});
+                }catch(err){
+                    console.log(err)
+                }
+                
+            })
+            .catch((err:any) => {
+                this.failedUrl[url]={tryTimes,success:false};
+                console.log("retry "+tryTimes+": "+url)
+                //失败后重试
+                retry()
+            })
+        })
     }
 }
 
 class PageTask extends Task{
     
     // todo 
-    // 1.正则
-    // 2.数据去重
-    // 3.错误处理
-    // 4.数据入库时机
+    // 1.正则    删除正则判断，使用url模块
+    // 2.数据去重    网页抓取暂无去重
+    // 3.错误处理    目前忽略错误  已改为重试，重试超过3次不再重试,失败过的任务都会被记录
+    // 4.数据入库时机   每次抓取完成检查是否有100条数据
+    // 5.入口循环添加任务  每次会生成所有任务，任务量大内存占用高，有隐患，准备修改为每次添加一定量任务，完成后再添加
     excuteTask(task:any,data:any,next:Function){
         //入口
         if(task.entry){
@@ -302,21 +369,15 @@ class PageTask extends Task{
                             }else{
                                 entryItem=task.entry+'?'+item.name+'='+i;
                             }
-                            self.taskLimiter.add((done:Function,retry:Function) => {
-                                superagent.get(entryItem).set(header(this.taskArrJSON[0].entry))
-                                .then((res:any) => {
-                                    done();
-                                    next({text:res.text});
-                                })
-                                .catch((err:any) => {
-                                    done()
-                                })
-                            })
+                            
+                            this.request(entryItem,next)
                             
                         }
                     
                     //参数是对象
                     }else if(paramType=='object'){
+                        //限制一次添加10个任务，执行完毕再继续添加
+                        let count=0,max=10;
                         for(let i=parseInt(param.start); i<parseInt(param.end); i+=parseInt(param.step)){
                             let entryItem=""
                             //如果已经查询过
@@ -325,18 +386,21 @@ class PageTask extends Task{
                             }else{
                                 entryItem=task.entry+'?'+item.name+'='+i;
                             }
-                            this.taskLimiter.add((done:Function,retry:Function) => {
-                                param.start=i;
-                                superagent.get(entryItem).set(header(this.taskArrJSON[0].entry))
-                                .then((res:any) => {
-                                    done();
-                                    next({text:res.text});
+                            count++;
+                            if(count>=max){
+                                this.request(entryItem,(data:any) => {
+                                    param.start++;
+                                    next(data)
+                                    this.taskQue[0]()
                                 })
-                                .catch((err:any) => {
-                                    console.log("error : "+entryItem)
-                                    done()
+                                break;
+                            }else{
+                                this.request(entryItem,function(data:any){
+                                    param.start++;
+                                    next(data)
                                 })
-                            })
+                            }
+                            
                         }
                     }else{
                     }
@@ -344,13 +408,7 @@ class PageTask extends Task{
 
             //没有参数
             }else{
-                superagent.get(task.entry).set(header(this.taskArrJSON[0].entry))
-                    .then((res:any) => {
-                        next({text:res.text});
-                    })
-                    .catch((err:any) => {
-
-                    })
+                this.request(task.entry,next)
             }
         
         //中间流程
@@ -358,21 +416,10 @@ class PageTask extends Task{
             let $=cheerio.load(data.text);
             let entrys=$(task.entrySelector);
             if(entrys[0]){
-                //todo 暂时限制3个请求
                 for(let i=0; i<entrys.length; i++){
-                    this.taskLimiter.add((done:Function,retry:Function) => {
-                        let href=entrys[i].attribs.href;
-                        
-                        href=new url.URL(this.taskArrJSON[0].entry,href)
-                        superagent.get(href).set(header(this.taskArrJSON[0].entry))
-                            .then((res:any) => {
-                                done()                                
-                                next({text:res.text});
-                            })
-                            .catch((err:any) => {
-                                done();
-                            })
-                    })
+                    let href=entrys[i].attribs.href;
+                    href=getURL(this.taskArrJSON[0].entry,href)
+                    this.request(href,next);                    
                 }
             }
         
@@ -383,25 +430,26 @@ class PageTask extends Task{
             let results:any={};
             for(let i=0; i<task.target.length; i++){
                 let fields=[];
-                // let targets=$(task.target[i].selector);
-                // for(let j=0; j<targets.length; j++){
-                //     fields.push(targets[i].children[0].data);
-                // }
-                let items=$(task.target[i].selector)
+                let items=$(task.target[i].selector);
+                results[task.target[i].key]=[]                    
                 switch(task.target[i].value){
                     case 'text':
-                        results[task.target[i].key]=[]    
                         for(let o=0; o<items.length; o++){
                             results[task.target[i].key].push($(items[o]).text().trim())
                         }
                         break;
+                    case 'dataset':
+                        for(let o=0; o<items.length; o++){
+                            results[task.target[i].key].push($(items[o]).data(task.target[i].value))
+                        }
+                        break;
                     default :
-                        results[task.target[i].key]=[]                        
                         for(let o=0,j=items.length; o<j; o++){
                             results[task.target[i].key].push(items[o].attribs[task.target[i].value].trim())
                         }
                 }
             }
+            //组装数据
             let keys=Object.keys(results);
             let length=results[keys[0]].length;
             for(let i=0; i<length; i++){

@@ -48,8 +48,14 @@ class Spider {
                 let response = yield superagent.get(taskArr[0].entry);
                 let $ = cheerio.load(response.text);
                 let favicon = $("[rel='icon']").attr("href");
+                if (!favicon || favicon.length <= 0) {
+                    favicon = $("[rel='shortcut icon']").attr("href");
+                }
+                if (!favicon || favicon.length <= 0) {
+                    favicon = $("[rel='icon shortcut']").attr("href");
+                }
                 if (favicon) {
-                    if (favicon.indexOf("//") === 0) {
+                    if (favicon.indexOf("//") >= 0) {
                         // customDef.favicon=favicon.replace("//","")
                         customDef.favicon = favicon;
                     }

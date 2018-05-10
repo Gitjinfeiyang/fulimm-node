@@ -145,6 +145,8 @@ var deleteTask=function(id:number){
 
 
 
+
+
 var db={
 	signUp,login,createPageTask,createTaskTable,getTaskList,getTaskById,saveTaskResult,
 	saveTaskJson,deleteTask,getTaskResult,getTaskResultCount,dropTable
