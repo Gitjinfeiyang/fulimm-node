@@ -78,11 +78,11 @@ function getTaskList():Array<any>{
 }
 
 function getURL(a:string,b:string):string{
-    // if(b.indexOf("//")>=0){
+    if(b.indexOf("//")>=0){
         return b;
-    // }else{
-        // return new url.URL(a,b+"").href;
-    // }
+    }else{
+        return url.resolve(a,b);
+    }
 }
 
 
@@ -319,7 +319,7 @@ class Task{
                 //如果失败过
                 try{
                     if(this.failedUrl[url]){
-                        this.failedUrl[url]={tryTimes,success:true};
+                        this.failedUrl[url].success=true;
                     }
                     callback({text:res.text});
                 }catch(err){
@@ -328,7 +328,7 @@ class Task{
                 
             })
             .catch((err:any) => {
-                this.failedUrl[url]={tryTimes,success:false};
+                this.failedUrl[url]={tryTimes,success:false,reason:err.message};
                 console.log("retry "+tryTimes+": "+url)
                 //失败后重试
                 retry()
@@ -384,19 +384,24 @@ class PageTask extends Task{
                             if(entry.indexOf("?")>0){
                                 entryItem=task.entry+'&'+item.name+'='+i;
                             }else{
-                                entryItem=task.entry+'?'+item.name+'='+i;
+                                if(!item.name||item.name.length<=0){
+                                    entryItem=getURL(task.entry,"./"+i);
+                                }else{
+                                    entryItem=task.entry+'?'+item.name+'='+i;                                    
+                                }
                             }
                             count++;
                             if(count>=max){
                                 this.request(entryItem,(data:any) => {
-                                    param.start++;
+                                    param.start=i;
                                     next(data)
                                     this.taskQue[0]()
+                                    count=0;
                                 })
                                 break;
                             }else{
                                 this.request(entryItem,function(data:any){
-                                    param.start++;
+                                    param.start=i;
                                     next(data)
                                 })
                             }
@@ -463,3 +468,8 @@ class PageTask extends Task{
         }
     }
 }
+
+
+
+//添加去重
+//添加apitask

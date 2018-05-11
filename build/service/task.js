@@ -76,11 +76,12 @@ function getTaskList() {
     return arr;
 }
 function getURL(a, b) {
-    // if(b.indexOf("//")>=0){
-    return b;
-    // }else{
-    // return new url.URL(a,b+"").href;
-    // }
+    if (b.indexOf("//") >= 0) {
+        return b;
+    }
+    else {
+        return url.resolve(a, b);
+    }
 }
 const header = function (host = "www.google.com") {
     return {
@@ -334,20 +335,26 @@ class PageTask extends Task {
                                 entryItem = task.entry + '&' + item.name + '=' + i;
                             }
                             else {
-                                entryItem = task.entry + '?' + item.name + '=' + i;
+                                if (!item.name || item.name.length <= 0) {
+                                    entryItem = getURL(task.entry, "./" + i);
+                                }
+                                else {
+                                    entryItem = task.entry + '?' + item.name + '=' + i;
+                                }
                             }
                             count++;
                             if (count >= max) {
                                 this.request(entryItem, (data) => {
-                                    param.start++;
+                                    param.start = i;
                                     next(data);
                                     this.taskQue[0]();
+                                    count = 0;
                                 });
                                 break;
                             }
                             else {
                                 this.request(entryItem, function (data) {
-                                    param.start++;
+                                    param.start = i;
                                     next(data);
                                 });
                             }
@@ -413,4 +420,6 @@ class PageTask extends Task {
         }
     }
 }
+//添加去重
+//添加apitask
 //# sourceMappingURL=task.js.map
